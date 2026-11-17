@@ -332,7 +332,7 @@ def get_frontend():
                     <ul style="padding-left: 16px; margin: 4px 0;">
                         <li><b>180° Symmetric Sudden Death:</b> Dinding menyusut berpasangan simetris dari kedua sisi hingga pusat 3×5.</li>
                         <li><b>Unbiased Tie-Breaking:</b> Urutan arah & prioritas langkah diacak 50:50 tiap tick.</li>
-                        <li><b>Fixed Blast Range:</b> Jarak ledakan bom dikunci tetap (3 ubin dari pusat) sepanjang pertandingan.</li>
+                        <li><b>Fixed Blast Range:</b> Bentangan ledakan bom dikunci tetap (3 ubin: pusat + 1 ubin tiap arah) sepanjang pertandingan.</li>
                     </ul>
                 </div>
 
@@ -343,14 +343,14 @@ def get_frontend():
                     <hr style="border: 0.5px solid #45475a; margin: 6px 0;">
                     <div style="color: #bd93f9;">
                         <b>Bot 1 (<span id="algoNameA">A*</span>) — Wins: <span id="winsA">0</span></b><br>
-                        • Visited: <span id="nodesA">0</span> (Avg: <span id="avgNodesA">0</span>)<br>
-                        • Time: <span id="timeA">0 ms</span> (Avg: <span id="avgTimeA">0 ms</span>) | <span id="stateA" style="color:#a6e3a1;">HUNT</span>
+- Visited: <span id="nodesA">0</span> (Avg: <span id="avgNodesA">0</span>)<br>
+- Time: <span id="timeA">0 ms</span> (Avg: <span id="avgTimeA">0 ms</span>) | <span id="stateA" style="color:#a6e3a1;">HUNT</span>
                     </div>
                     <div id="bot2StatsBox" style="color: #89b4fa; margin-top: 6px;">
                         <hr style="border: 0.5px solid #45475a; margin: 6px 0;">
                         <b>Bot 2 (<span id="algoNameB">Dijkstra</span>) — Wins: <span id="winsB">0</span></b><br>
-                        • Visited: <span id="nodesB">0</span> (Avg: <span id="avgNodesB">0</span>)<br>
-                        • Time: <span id="timeB">0 ms</span> (Avg: <span id="avgTimeB">0 ms</span>) | <span id="stateB" style="color:#a6e3a1;">HUNT</span>
+- Visited: <span id="nodesB">0</span> (Avg: <span id="avgNodesB">0</span>)<br>
+- Time: <span id="timeB">0 ms</span> (Avg: <span id="avgTimeB">0 ms</span>) | <span id="stateB" style="color:#a6e3a1;">HUNT</span>
                     </div>
                 </div>
             </div>
@@ -362,7 +362,7 @@ def get_frontend():
             const CELL = 40;
             const ROWS = 13, COLS = 15;
             const DIRS4 = [[-1,0], [1,0], [0,-1], [0,1]];
-            const FIXED_BLAST_RANGE = 2; // Pusat + 2 ubin tiap arah = 3 ubin konstan
+            const FIXED_BLAST_RANGE = 1; // Pusat + 1 ubin tiap arah = 3 ubin konstan
 
             const MAP_TEMPLATE = [
                 [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
@@ -473,7 +473,7 @@ def get_frontend():
                 const spd = getEffectiveSpeed();
                 const elapsed = Math.floor(simTicks / 60);
                 document.getElementById('phaseInfo').innerText =
-                    `${phase.name} (${spd}x) | 💣 ${phase.maxBombs} | 💥 Jarak 3 | ⏱️ ${elapsed}s`;
+                    `${phase.name} (${spd}x) | 💣 ${phase.maxBombs} | 💥 3 Ubin | ⏱️ ${elapsed}s`;
             }
 
             function makeBot(id, name, color, r, c) {
