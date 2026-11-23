@@ -82,9 +82,16 @@ def reconstruct_path(came_from: Dict, start, goal) -> List[List[int]]:
     path.reverse()
     return path
 
+def search_depth(came_from: Dict, start, node) -> int:
+    depth = 0
+    while node != start and node in came_from:
+        depth += 1
+        node = came_from[node]
+    return depth
+
 def run_search(algo, grid, start, target, history, danger):
     if start == target:
-        return [[start[0], start[1]]], 0
+        return [[start[0], start[1]]], 0, 0, 0
 
     order = random_dir_order()
     counter = itertools.count()
@@ -99,6 +106,8 @@ def run_search(algo, grid, start, target, history, danger):
 
     nodes_explored = 0
     came_from = {}
+    depth_from = {start: 0}
+    max_depth = 0
     best_fallback = start
     best_fallback_dist = manhattan_distance(start, target)
     algo = algo.upper()
@@ -110,16 +119,19 @@ def run_search(algo, grid, start, target, history, danger):
         while queue:
             curr = queue.popleft()
             nodes_explored += 1
+            max_depth = max(max_depth, search_depth(came_from, start, curr))
             d_curr = manhattan_distance(curr, target)
             if d_curr < best_fallback_dist:
                 best_fallback_dist = d_curr
                 best_fallback = curr
             if curr == target:
-                return reconstruct_path(came_from, start, target), nodes_explored
+                path = reconstruct_path(came_from, start, target)
+                return path, nodes_explored, max_depth, max(0, len(path) - 1)
             for (nxt, _) in get_neighbors(curr, grid, history_weights, danger_cells, order):
                 if nxt not in visited:
                     visited.add(nxt)
                     came_from[nxt] = curr
+                    depth_from[nxt] = depth_from[curr] + 1
                     queue.append(nxt)
 
     # 2. UCS: Weighted lowest-cost search dengan early-exit saat target tercapai
@@ -131,17 +143,20 @@ def run_search(algo, grid, start, target, history, danger):
             if curr_g > g_score.get(curr, float('inf')):
                 continue
             nodes_explored += 1
+            max_depth = max(max_depth, search_depth(came_from, start, curr))
             d_curr = manhattan_distance(curr, target)
             if d_curr < best_fallback_dist:
                 best_fallback_dist = d_curr
                 best_fallback = curr
             if curr == target:
-                return reconstruct_path(came_from, start, target), nodes_explored
+                path = reconstruct_path(came_from, start, target)
+                return path, nodes_explored, max_depth, max(0, len(path) - 1)
             for (nxt, cost) in get_neighbors(curr, grid, history_weights, danger_cells, order):
                 new_g = curr_g + cost
                 if new_g < g_score.get(nxt, float('inf')):
                     g_score[nxt] = new_g
                     came_from[nxt] = curr
+                    depth_from[nxt] = depth_from[curr] + 1
                     heapq.heappush(pq, (new_g, next(counter), nxt))
 
     # 3. DIJKSTRA: Membangun full shortest-path tree pada seluruh grid terjangkau
@@ -153,6 +168,7 @@ def run_search(algo, grid, start, target, history, danger):
             if curr_g > g_score.get(curr, float('inf')):
                 continue
             nodes_explored += 1
+            max_depth = max(max_depth, search_depth(came_from, start, curr))
             d_curr = manhattan_distance(curr, target)
             if d_curr < best_fallback_dist:
                 best_fallback_dist = d_curr
@@ -162,9 +178,11 @@ def run_search(algo, grid, start, target, history, danger):
                 if new_g < g_score.get(nxt, float('inf')):
                     g_score[nxt] = new_g
                     came_from[nxt] = curr
+                    depth_from[nxt] = depth_from[curr] + 1
                     heapq.heappush(pq, (new_g, next(counter), nxt))
         if target in came_from:
-            return reconstruct_path(came_from, start, target), nodes_explored
+            path = reconstruct_path(came_from, start, target)
+            return path, nodes_explored, max_depth, max(0, len(path) - 1)
 
     # 4. GBFS: Pure heuristic f(n) = h(n)
     elif algo == "GBFS":
@@ -173,16 +191,19 @@ def run_search(algo, grid, start, target, history, danger):
         while pq:
             _, _, curr = heapq.heappop(pq)
             nodes_explored += 1
+            max_depth = max(max_depth, search_depth(came_from, start, curr))
             d_curr = manhattan_distance(curr, target)
             if d_curr < best_fallback_dist:
                 best_fallback_dist = d_curr
                 best_fallback = curr
             if curr == target:
-                return reconstruct_path(came_from, start, target), nodes_explored
+                path = reconstruct_path(came_from, start, target)
+                return path, nodes_explored, max_depth, max(0, len(path) - 1)
             for (nxt, _) in get_neighbors(curr, grid, history_weights, danger_cells, order):
                 if nxt not in visited:
                     visited.add(nxt)
                     came_from[nxt] = curr
+                    depth_from[nxt] = depth_from[curr] + 1
                     priority = float(manhattan_distance(nxt, target))
                     heapq.heappush(pq, (priority, next(counter), nxt))
 
@@ -195,23 +216,27 @@ def run_search(algo, grid, start, target, history, danger):
             if curr_g > g_score.get(curr, float('inf')):
                 continue
             nodes_explored += 1
+            max_depth = max(max_depth, search_depth(came_from, start, curr))
             d_curr = manhattan_distance(curr, target)
             if d_curr < best_fallback_dist:
                 best_fallback_dist = d_curr
                 best_fallback = curr
             if curr == target:
-                return reconstruct_path(came_from, start, target), nodes_explored
+                path = reconstruct_path(came_from, start, target)
+                return path, nodes_explored, max_depth, max(0, len(path) - 1)
             for (nxt, cost) in get_neighbors(curr, grid, history_weights, danger_cells, order):
                 new_g = curr_g + cost
                 if new_g < g_score.get(nxt, float('inf')):
                     g_score[nxt] = new_g
                     came_from[nxt] = curr
+                    depth_from[nxt] = depth_from[curr] + 1
                     new_f = new_g + float(manhattan_distance(nxt, target))
                     heapq.heappush(pq, (new_f, new_g, next(counter), nxt))
 
     if best_fallback != start:
-        return reconstruct_path(came_from, start, best_fallback), nodes_explored
-    return [], nodes_explored
+        path = reconstruct_path(came_from, start, best_fallback)
+        return path, nodes_explored, max_depth, 0
+    return [], nodes_explored, max_depth, 0
 
 # --------------------------------------------------------------------------
 # 3. FASTAPI REST ENDPOINT
@@ -224,7 +249,7 @@ def find_paths_multi(req: MultiPathRequest):
         target_tuple = (enemy_info.target[0], enemy_info.target[1])
 
         t_start = time.perf_counter()
-        path, nodes = run_search(
+        path, nodes, max_depth, solution_depth = run_search(
             enemy_info.algorithm,
             req.grid,
             start_tuple,
@@ -242,6 +267,8 @@ def find_paths_multi(req: MultiPathRequest):
             "full_path": path,
             "algorithm": enemy_info.algorithm,
             "nodes_explored": nodes,
+            "max_depth": max_depth,
+            "solution_depth": solution_depth,
             "exec_time_ms": exec_time
         })
 
@@ -257,46 +284,104 @@ def get_frontend():
     <html lang="id">
     <head>
         <meta charset="UTF-8">
-        <title>Bomberman AI - Balanced Symmetric Arena Engine</title>
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <title>Bomberman AI | Arena Benchmark</title>
+        <link rel="preconnect" href="https://fonts.googleapis.com">
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
         <style>
-            body { font-family: 'Segoe UI', Tahoma, sans-serif; background: #181825; color: #cdd6f4; text-align: center; margin: 15px; }
-            #container { display: flex; justify-content: center; gap: 20px; margin-top: 10px; }
-            canvas { border: 3px solid #cba6f7; background: #1e1e2e; border-radius: 8px; }
-            #panel { background: #313244; padding: 20px; border-radius: 8px; width: 360px; text-align: left; }
-            select, button { padding: 8px; font-size: 13px; width: 100%; margin-top: 5px; border-radius: 4px; border: none; cursor: pointer; }
-            button { background: #a6e3a1; color: #11111b; font-weight: bold; margin-top: 12px; padding: 10px; }
-            button:hover { background: #94e2d5; }
-            .stat { margin-top: 8px; font-weight: bold; background: #45475a; padding: 8px; border-radius: 4px; font-size: 13px; }
-            .stat-box { margin-top: 12px; background: #181825; padding: 10px; border-radius: 6px; border: 1px solid #45475a; font-size: 12px; line-height: 1.5; }
-            .reload-bar-bg { background: #313244; border: 1px solid #cba6f7; height: 10px; border-radius: 5px; margin-top: 4px; overflow: hidden; }
-            .reload-bar-fill { background: #f9e2af; height: 100%; width: 100%; transition: width 0.1s linear; }
-            .mode-header { background: #eba0ac; color: #11111b; padding: 6px; border-radius: 4px; font-weight: bold; margin-bottom: 10px; text-align: center; }
-            .rules-box { background: #313244; border: 1px solid #eba0ac; border-radius: 6px; padding: 8px; margin-top: 10px; font-size: 11px; line-height: 1.4; }
+            :root { --page:#191a18; --panel:#222421; --raised:#292b27; --line:#41443e; --text:#f0f0e9; --muted:#b7b9af; --accent:#d6a84f; --bot-a:#55b8aa; --bot-b:#d6a84f; --danger:#ef6248; --floor:#252723; --wall:#343731; --brick:#62533e; --collapse:#8f3429; --ui:'Barlow Semi Condensed','Arial Narrow',sans-serif; --mono:'IBM Plex Mono','Cascadia Mono',Consolas,monospace; --space:12px; }
+            * { box-sizing:border-box; }
+            body { margin:0; padding:18px 24px; background:var(--page); color:var(--text); font:16px/1.4 var(--ui); }
+            h1 { margin:0 0 4px; font-size:24px; font-weight:600; }
+            .page-head { max-width:1500px; margin:0 auto 10px; display:flex; align-items:baseline; gap:14px; }
+            .page-kicker,.field-label { color:var(--muted); font-size:13px; }
+            #statusMsg { min-height:0; margin-left:auto; font-size:16px; font-weight:600; }
+            #container { display:flex; align-items:stretch; justify-content:center; gap:16px; max-width:1500px; margin:0 auto; }
+            #gameCanvas { display:block; width:auto; height:min(calc(100vh - 104px), 760px); max-width:calc(100vw - 450px); aspect-ratio:15 / 13; border:1px solid var(--line); background:var(--floor); }
+            #panel { background:var(--panel); padding:12px; width:390px; flex:0 0 390px; max-height:calc(100vh - 70px); overflow-y:auto; text-align:left; border:1px solid var(--line); }
+            .mode-header,.section-title { margin:0 0 var(--space); padding-bottom:8px; border-bottom:1px solid var(--line); font-size:18px; font-weight:600; }
+            .field { display:block; margin:0 0 10px; }
+            .field-label { display:block; margin-bottom:4px; }
+            select,button { display:block; width:100%; min-height:36px; padding:7px 9px; border:1px solid var(--line); border-radius:3px; background:var(--raised); color:var(--text); font:15px var(--ui); }
+            select { cursor:pointer; }
+            button { margin:5px 0; background:var(--raised); color:var(--text); border-color:var(--line); font-weight:600; cursor:pointer; transition:background .12s ease,border-color .12s ease; }
+            button:hover { background:#343731; border-color:#77796e; }
+            button:disabled { opacity:.55; cursor:not-allowed; }
+            :focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+            .bot-a-label { border-left:3px solid var(--bot-a); padding-left:7px; }
+            .bot-b-label { border-left:3px solid var(--bot-b); padding-left:7px; }
+            .stat { margin-top:6px; padding:7px 9px; background:var(--raised); font-size:14px; }
+            .status-strip { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:8px; }
+            .status-strip span { min-width:0; }
+            .status-strip small { display:block; color:var(--muted); font:12px var(--ui); }
+            .status-strip b { font:13px var(--mono); font-variant-numeric:tabular-nums; }
+            .status-strip .status-phase { grid-column:1/-1; padding-bottom:5px; border-bottom:1px solid var(--line); color:var(--text); font-weight:600; }
+            .stat-box { margin-top:8px; padding:9px; border:1px solid var(--line); font-size:14px; }
+            .metric-value,.stats-table td { font-family:var(--mono); font-variant-numeric:tabular-nums; }
+            .stats-table { width:100%; border-collapse:collapse; margin-top:8px; }
+            .stats-table th,.stats-table td { padding:5px 4px; border-bottom:1px solid var(--line); text-align:left; }
+            .stats-table th { font-size:14px; font-weight:600; }
+            .stats-table td:first-child { color:var(--muted); font-family:var(--ui); }
+            .bot-a-head { border-left:3px solid var(--bot-a); padding-left:6px!important; }
+            .bot-b-head { border-left:3px solid var(--bot-b); padding-left:6px!important; }
+            .rules-box { margin-top:var(--space); padding:8px 0; color:var(--muted); font-size:13px; }
+            .rules-box summary { color:var(--text); cursor:pointer; font-size:14px; }
+            .rules-box ul { margin:8px 0 0; padding-left:18px; }
+            .rules-box li { margin:5px 0; }
+            .reload-bar-bg { height:8px; margin-top:5px; overflow:hidden; background:var(--page); border:1px solid var(--line); }
+            .reload-bar-fill { width:100%; height:100%; background:var(--accent); transition:width .1s linear; }
+            .menu-screen { position:fixed; inset:0; z-index:10; display:grid; place-items:center; overflow:auto; padding:24px; background:var(--page); }
+            .menu-card { width:min(560px,100%); padding:24px; border:1px solid var(--line); background:var(--panel); }
+            .menu-card h1 { font-size:32px; } .menu-card p { color:var(--muted); }
+            #container { display:none; } body.playing #container { display:flex; }
+            #menuForm .field { margin-top:12px; } #menuForm .field-label { font-weight:600; }
+            #autoEscalate { accent-color:var(--accent); }
+            button { border-radius:3px; }
+            #panel > .rules-box { display:none; }
+            #panel { display:flex; flex-direction:column; gap:3px; }
+            #restartBtn,#menuBtn,#phaseInfo,#playerStats,.stat-box { flex:0 0 auto; }
+            #restartBtn { width:100%; background:var(--accent); color:var(--page); border-color:var(--accent); font-weight:700; }
+            #runtimeSpeedSelect { min-height:34px; }
+            .button-row { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+            .button-row button { width:100%; margin:3px 0; }
+            #tickValue { font-size:14px; }
+            .section-title { font-size:17px; line-height:1.25; }
+            .analysis-meta { display:flex; justify-content:space-between; align-items:center; gap:8px; margin:0 0 6px; color:var(--muted); }
+            #winSummary { color:var(--text); font-size:12px; white-space:nowrap; }
+            .stats-table { font-size:13px; }
+            .stats-table th { font-size:13px; }
+            .map-cards { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; margin:10px 0; }
+            .map-card { margin:0; min-height:0; padding:6px; background:var(--raised); color:var(--text); border:1px solid var(--line); text-align:left; }
+            .map-card[aria-pressed="true"] { border-color:var(--accent); }
+            .map-card canvas { display:block; width:100%; height:auto; margin-bottom:5px; }
+            @media(prefers-reduced-motion:reduce) { *,*::before,*::after{scroll-behavior:auto!important;transition-duration:.01ms!important;animation-duration:.01ms!important} }
         </style>
     </head>
     <body>
-        <h2>Bomberman AI - Balanced Symmetric Arena Engine</h2>
-        <div id="statusMsg" style="font-weight:bold; font-size:17px; min-height:24px;"></div>
+        <header class="page-head">
+            <h1>Bomberman AI</h1>
+            <div class="page-kicker">Arena benchmark</div>
+            <div id="statusMsg"></div>
+        </header>
 
         <div id="container">
             <canvas id="gameCanvas" width="600" height="520"></canvas>
 
             <div id="panel">
-                <div class="mode-header">🎮 MODE & KECEPATAN</div>
-                <select id="modeSelect">
+                <div class="mode-header">Kontrol simulasi</div>
+                <label class="field"><span class="field-label">Mode permainan</span><select id="modeSelect">
                     <option value="BvB" selected>Bot vs Bot (BvB Simultan)</option>
                     <option value="PvB">Player vs Bot (PvB)</option>
-                </select>
+                </select></label>
 
-                <select id="speedSelect" style="margin-top: 6px; background: #45475a; color: #f9e2af; font-weight: bold;">
-                    <option value="AUTO" selected>⚡ Speed: Auto Eskalasi (1x → 2x → 3x)</option>
-                    <option value="1">▶️ Speed: 1x Normal</option>
-                    <option value="2">⏩ Speed: 2x Cepat</option>
-                    <option value="3">⏭️ Speed: 3x Turbo</option>
-                </select>
+                <label class="field"><span class="field-label">Kecepatan</span><select id="speedSelect">
+                    <option value="0.25">0.25x</option><option value="0.5">0.5x</option>
+                    <option value="1" selected>1x</option><option value="2">2x</option><option value="3">3x</option>
+                </select></label>
 
-                <div id="botAControl" style="margin-top: 10px;">
-                    <label style="color: #bd93f9;"><b>🤖 Bot 1 (Ungu):</b></label>
+                <div id="botAControl" class="field">
+                    <label class="field-label bot-a-label"><b>Bot 1 · Persegi</b></label>
                     <select id="algoSelectA">
                         <option value="A_STAR" selected>A* Search Algorithm</option>
                         <option value="DIJKSTRA">Dijkstra Algorithm</option>
@@ -306,8 +391,8 @@ def get_frontend():
                     </select>
                 </div>
 
-                <div id="botBControl" style="margin-top: 8px;">
-                    <label style="color: #89b4fa;"><b>🤖 Bot 2 (Biru):</b></label>
+                <div id="botBControl" class="field">
+                    <label class="field-label bot-b-label"><b>Bot 2 · Berlian</b></label>
                     <select id="algoSelectB">
                         <option value="A_STAR">A* Search Algorithm</option>
                         <option value="DIJKSTRA" selected>Dijkstra Algorithm</option>
@@ -317,45 +402,50 @@ def get_frontend():
                     </select>
                 </div>
 
-                <button id="restartBtn">🔄 Restart Ronde Baru</button>
+                <button id="restartBtn">Ulang ronde</button>
+                <label class="field"><span class="field-label">Kecepatan saat ini</span><select id="runtimeSpeedSelect"><option value="0.25">0.25x</option><option value="0.5">0.5x</option><option value="1" selected>1x</option><option value="2">2x</option><option value="3">3x</option></select></label>
+                <div class="button-row"><button id="pauseBtn" type="button">Jeda</button><button id="stepBtn" type="button">Step satu tick</button></div>
+                <button id="menuBtn" type="button">Kembali ke menu</button>
+                <div class="stat">Tick <b id="tickValue" class="metric-value">0</b> · Peta <b id="mapNameGame">Klasik</b></div>
 
                 <div id="playerStats" style="display: none;">
-                    <div class="stat">Nyawa Player: <span id="healthVal">❤️ ❤️ ❤️</span></div>
+                    <div class="stat">Nyawa pemain: <span id="healthVal">3</span></div>
                     <div class="stat">
-                        Amunisi Magazin: <span id="ammoVal">💣</span>
+                        Amunisi magazin: <span id="ammoVal">1</span>
                         <div class="reload-bar-bg"><div id="reloadFill" class="reload-bar-fill"></div></div>
                     </div>
                 </div>
 
-                <div class="rules-box">
-                    <b>⚖️ Fair Arena & Eliminasi KO:</b>
-                    <ul style="padding-left: 16px; margin: 4px 0;">
-                        <li><b>180° Symmetric Sudden Death:</b> Dinding menyusut berpasangan simetris dari kedua sisi hingga pusat 3×5.</li>
-                        <li><b>Unbiased Tie-Breaking:</b> Urutan arah & prioritas langkah diacak 50:50 tiap tick.</li>
-                        <li><b>Fixed Blast Range:</b> Bentangan ledakan bom dikunci tetap (3 ubin: pusat + 1 ubin tiap arah) sepanjang pertandingan.</li>
+                <details class="rules-box">
+                    <summary>Aturan arena dan eliminasi KO</summary>
+                    <ul>
+                        <li>Penyusutan simetris 180°: dinding menyusut berpasangan dari kedua sisi hingga pusat 3×5.</li>
+                        <li>Pemecah seri seimbang: urutan arah dan prioritas langkah diacak 50:50 tiap tick.</li>
+                        <li>Jangkauan ledakan tetap: 3 ubin, mencakup pusat dan satu ubin tiap arah.</li>
                     </ul>
-                </div>
+                </details>
+                <div class="stat status-strip" id="phaseInfo"></div>
 
-                <div class="stat" id="phaseInfo"></div>
-
-                <div class="stat-box">
-                    <b>📊 Analisis Komparasi (<span id="winSummary">B1: 0 | B2: 0 | Seri: 0</span>)</b>
-                    <hr style="border: 0.5px solid #45475a; margin: 6px 0;">
-                    <div style="color: #bd93f9;">
-                        <b>Bot 1 (<span id="algoNameA">A*</span>) — Wins: <span id="winsA">0</span></b><br>
-- Visited: <span id="nodesA">0</span> (Avg: <span id="avgNodesA">0</span>)<br>
-- Time: <span id="timeA">0 ms</span> (Avg: <span id="avgTimeA">0 ms</span>) | <span id="stateA" style="color:#a6e3a1;">HUNT</span>
-                    </div>
-                    <div id="bot2StatsBox" style="color: #89b4fa; margin-top: 6px;">
-                        <hr style="border: 0.5px solid #45475a; margin: 6px 0;">
-                        <b>Bot 2 (<span id="algoNameB">Dijkstra</span>) — Wins: <span id="winsB">0</span></b><br>
-- Visited: <span id="nodesB">0</span> (Avg: <span id="avgNodesB">0</span>)<br>
-- Time: <span id="timeB">0 ms</span> (Avg: <span id="avgTimeB">0 ms</span>) | <span id="stateB" style="color:#a6e3a1;">HUNT</span>
-                    </div>
-                </div>
+                <section class="stat-box">
+                    <h2 class="section-title">Analisis komparasi</h2>
+                    <div class="analysis-meta"><span>Peta: <b id="mapNameAnalysis">Klasik</b></span><span id="winSummary" class="metric-value">B1: 0 | B2: 0 | Seri: 0</span></div>
+                    <p class="rules-box">Depth node = jumlah edge dari posisi awal, bukan cost. Max depth: ekspansi terdalam; solution depth: jumlah langkah pada path.</p>
+                    <table class="stats-table">
+                        <thead><tr><th></th><th class="bot-a-head">Bot 1</th><th id="bot2StatsBox" class="bot-b-head bot-b-column">Bot 2</th></tr></thead>
+                        <tbody>
+                            <tr><td>Algoritma</td><td id="algoNameA">A*</td><td class="bot-b-column" id="algoNameB">Dijkstra</td></tr>
+                            <tr><td>Wins</td><td id="winsA">0</td><td class="bot-b-column" id="winsB">0</td></tr>
+                            <tr><td>Dikunjungi (rata-rata)</td><td><span id="nodesA">0</span> (<span id="avgNodesA">0</span>)</td><td class="bot-b-column"><span id="nodesB">0</span> (<span id="avgNodesB">0</span>)</td></tr>
+                            <tr><td>Depth maks. (rata-rata)</td><td><span id="depthA">0</span> (<span id="avgDepthA">0</span>)</td><td class="bot-b-column"><span id="depthB">0</span> (<span id="avgDepthB">0</span>)</td></tr>
+                            <tr><td>Depth solusi (rata-rata)</td><td><span id="solutionA">0</span> (<span id="avgSolutionA">0</span>)</td><td class="bot-b-column"><span id="solutionB">0</span> (<span id="avgSolutionB">0</span>)</td></tr>
+                            <tr><td>Waktu (rata-rata)</td><td><span id="timeA">0 ms</span> (<span id="avgTimeA">0 ms</span>)</td><td class="bot-b-column"><span id="timeB">0 ms</span> (<span id="avgTimeB">0 ms</span>)</td></tr>
+                            <tr><td>Status</td><td id="stateA">HUNT</td><td class="bot-b-column" id="stateB">HUNT</td></tr>
+                        </tbody>
+                    </table>
+                </section>
             </div>
         </div>
-
+        <section id="startMenu" class="menu-screen"><div class="menu-card"><div class="page-kicker">Arena benchmark taktis</div><h1>Bomberman AI</h1><p>Pilih konfigurasi ronde sebelum simulasi dimulai.</p><div id="menuForm"></div><label class="field"><span class="field-label">Peta arena</span><select id="mapSelect"><option value="classic">Klasik</option><option value="corridor">Koridor</option><option value="open">Terbuka</option></select></label><div class="map-cards"><button class="map-card" data-map="classic" aria-pressed="true"><canvas width="120" height="104"></canvas>Klasik</button><button class="map-card" data-map="corridor" aria-pressed="false"><canvas width="120" height="104"></canvas>Koridor</button><button class="map-card" data-map="open" aria-pressed="false"><canvas width="120" height="104"></canvas>Terbuka</button></div><label class="field"><input id="autoEscalate" type="checkbox"> Eskalasi otomatis fase</label><button id="startBtn" type="button">Mulai</button><details class="rules-box"><summary>Keterangan aturan</summary><ul><li>Penyusutan sudden death simetris menuju area tengah.</li><li>Urutan arah dan prioritas langkah diacak 50:50 tiap tick.</li><li>Jangkauan ledakan tetap 3 ubin termasuk ubin pusat.</li></ul></details></div></section>
         <script>
             const canvas = document.getElementById('gameCanvas');
             const ctx = canvas.getContext('2d');
@@ -363,6 +453,11 @@ def get_frontend():
             const ROWS = 13, COLS = 15;
             const DIRS4 = [[-1,0], [1,0], [0,-1], [0,1]];
             const FIXED_BLAST_RANGE = 1; // Pusat + 1 ubin tiap arah = 3 ubin konstan
+            const COLORS = {
+                botA: '#55b8aa', botB: '#d6a84f', player: '#f0f0e9', ink: '#191a18', line: '#41443e', grid: '#30322e',
+                floor: '#252723', wall: '#343731', brick: '#62533e', collapse: '#8f3429',
+                danger: '#ef6248', pathA: 'rgba(85,184,170,0.22)', pathB: 'rgba(214,168,79,0.22)'
+            };
 
             const MAP_TEMPLATE = [
                 [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
@@ -379,6 +474,54 @@ def get_frontend():
                 [1,0,0,2,2,2,2,2,2,2,2,2,0,0,1],
                 [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]
             ];
+            const MAPS = {
+                classic: { name: 'Klasik', grid: MAP_TEMPLATE },
+                corridor: { name: 'Koridor', grid: makeVariantMap('corridor') },
+                open: { name: 'Terbuka', grid: makeVariantMap('open') }
+            };
+            function makeVariantMap(kind) {
+                const g = Array.from({length: ROWS}, (_,r) => Array.from({length: COLS}, (_,c) =>
+                    r === 0 || c === 0 || r === ROWS-1 || c === COLS-1 ? 1 : 2));
+                for (let r=1;r<ROWS-1;r++) for(let c=1;c<COLS-1;c++) {
+                    const mr=ROWS-1-r, mc=COLS-1-c;
+                    if (r>mr || (r===mr && c>mc)) continue;
+                    let permanent = kind === 'corridor'
+                        ? ((c===3 || c===7 || c===11) && (r%4!==1)) || ((r===4 || r===8) && (c%4===1))
+                        : ((r===3 || r===9) && (c===4 || c===10));
+                    const safe = (r<=2 && c<=2) || (mr<=2 && mc<=2) || (r>=ROWS-3 && c>=COLS-3) || (mr>=ROWS-3 && mc>=COLS-3);
+                    const center = r>=5 && r<=7 && c>=5 && c<=9;
+                    if (safe || center) permanent=false;
+                    g[r][c]=g[mr][mc]=permanent ? 1 : (kind==='open' && ((r*7+c*3)%5!==0) ? 0 : 2);
+                }
+                [[1,1],[1,2],[2,1],[11,13],[11,12],[10,13]].forEach(([r,c])=>g[r][c]=0);
+                return g;
+            }
+            function validateMaps() {
+                Object.entries(MAPS).forEach(([key,m]) => {
+                    for(let r=0;r<ROWS;r++) for(let c=0;c<COLS;c++) {
+                        if(m.grid[r][c]!==m.grid[ROWS-1-r][COLS-1-c]) throw new Error(`Peta ${key} tidak simetris`);
+                    }
+                    const q=[[1,1]], seen=new Set(['1,1']);
+                    while(q.length){const [r,c]=q.shift(); for(const [dr,dc] of DIRS4){const nr=r+dr,nc=c+dc,k=`${nr},${nc}`; if(nr>0&&nr<ROWS-1&&nc>0&&nc<COLS-1&&m.grid[nr][nc]!==1&&!seen.has(k)){seen.add(k);q.push([nr,nc]);}}}
+                    if(!seen.has('11,13')) throw new Error(`Spawn terputus pada peta ${key}`);
+                    for (const [r,c] of [[1,1],[11,13]]) {
+                        const lSafe = [[r,c],[r,c+(c<7?1:-1)],[r+(r<6?1:-1),c]];
+                        if(lSafe.some(([sr,sc])=>m.grid[sr][sc]!==0)) throw new Error(`Area spawn tidak aman pada peta ${key}`);
+                    }
+                });
+            }
+            function drawMapPreviews() {
+                document.querySelectorAll('.map-card').forEach(card => {
+                    const g=MAPS[card.dataset.map].grid, c=card.querySelector('canvas').getContext('2d');
+                    const w=c.canvas.width/COLS, h=c.canvas.height/ROWS;
+                    for(let r=0;r<ROWS;r++) for(let col=0;col<COLS;col++) {
+                        c.fillStyle=g[r][col]===1?COLORS.wall:(g[r][col]===2?COLORS.brick:COLORS.floor);
+                        c.fillRect(col*w,r*h,w-1,h-1);
+                    }
+                    c.fillStyle=COLORS.botA; c.fillRect(w,h,w*1.5,h*1.5);
+                    c.fillStyle=COLORS.botB; c.fillRect((COLS-2)*w,(ROWS-2)*h,w,h);
+                });
+            }
 
             // Pasangan koordinat simetris putar 180 derajat agar kedua bot terhimpit secara adil
             function buildSymmetricSpiralPairs() {
@@ -420,14 +563,16 @@ def get_frontend():
             let seriesStats = {
                 wins1: 0, wins2: 0, draws: 0,
                 nodesSum1: 0, timeSum1: 0, calls1: 0,
-                nodesSum2: 0, timeSum2: 0, calls2: 0
+                nodesSum2: 0, timeSum2: 0, calls2: 0,
+                depthSum1:0, solutionSum1:0, depthSum2:0, solutionSum2:0
             };
 
             function resetSeriesStats() {
                 seriesStats = {
                     wins1: 0, wins2: 0, draws: 0,
                     nodesSum1: 0, timeSum1: 0, calls1: 0,
-                    nodesSum2: 0, timeSum2: 0, calls2: 0
+                    nodesSum2: 0, timeSum2: 0, calls2: 0,
+                    depthSum1:0, solutionSum1:0, depthSum2:0, solutionSum2:0
                 };
                 updateSeriesHUD();
             }
@@ -442,11 +587,15 @@ def get_frontend():
                 const avgT1 = seriesStats.calls1 ? (seriesStats.timeSum1 / seriesStats.calls1).toFixed(3) + " ms" : "0 ms";
                 document.getElementById('avgNodesA').innerText = avgN1;
                 document.getElementById('avgTimeA').innerText = avgT1;
+                document.getElementById('avgDepthA').innerText = seriesStats.calls1 ? (seriesStats.depthSum1/seriesStats.calls1).toFixed(1) : '0';
+                document.getElementById('avgSolutionA').innerText = seriesStats.calls1 ? (seriesStats.solutionSum1/seriesStats.calls1).toFixed(1) : '0';
 
                 const avgN2 = seriesStats.calls2 ? (seriesStats.nodesSum2 / seriesStats.calls2).toFixed(1) : "0";
                 const avgT2 = seriesStats.calls2 ? (seriesStats.timeSum2 / seriesStats.calls2).toFixed(3) + " ms" : "0 ms";
                 document.getElementById('avgNodesB').innerText = avgN2;
                 document.getElementById('avgTimeB').innerText = avgT2;
+                document.getElementById('avgDepthB').innerText = seriesStats.calls2 ? (seriesStats.depthSum2/seriesStats.calls2).toFixed(1) : '0';
+                document.getElementById('avgSolutionB').innerText = seriesStats.calls2 ? (seriesStats.solutionSum2/seriesStats.calls2).toFixed(1) : '0';
             }
 
             const OVERDRIVE_TICKS = 1200;    // 20 detik
@@ -454,17 +603,17 @@ def get_frontend():
 
             function getCurrentPhase() {
                 if (simTicks >= SUDDEN_DEATH_TICKS) {
-                    return { name: "🔥 SUDDEN DEATH", autoSpeed: 3, maxBombs: 3, range: FIXED_BLAST_RANGE, fuse: 36 };
+                    return { name: "SUDDEN DEATH", autoSpeed: 3, maxBombs: 3, range: FIXED_BLAST_RANGE, fuse: 36 };
                 }
                 if (simTicks >= OVERDRIVE_TICKS) {
-                    return { name: "⚡ OVERDRIVE", autoSpeed: 2, maxBombs: 2, range: FIXED_BLAST_RANGE, fuse: 48 };
+                    return { name: "OVERDRIVE", autoSpeed: 2, maxBombs: 2, range: FIXED_BLAST_RANGE, fuse: 48 };
                 }
-                return { name: "⚔️ NORMAL", autoSpeed: 1, maxBombs: 1, range: FIXED_BLAST_RANGE, fuse: 60 };
+                return { name: "NORMAL", autoSpeed: 1, maxBombs: 1, range: FIXED_BLAST_RANGE, fuse: 60 };
             }
 
             function getEffectiveSpeed() {
                 const sel = document.getElementById('speedSelect').value;
-                if (sel !== "AUTO") return parseInt(sel, 10);
+                if (!document.getElementById('autoEscalate').checked) return parseFloat(sel);
                 return getCurrentPhase().autoSpeed;
             }
 
@@ -472,8 +621,12 @@ def get_frontend():
                 const phase = getCurrentPhase();
                 const spd = getEffectiveSpeed();
                 const elapsed = Math.floor(simTicks / 60);
-                document.getElementById('phaseInfo').innerText =
-                    `${phase.name} (${spd}x) | 💣 ${phase.maxBombs} | 💥 3 Ubin | ⏱️ ${elapsed}s`;
+                document.getElementById('phaseInfo').innerHTML =
+                    `<span class="status-phase">${phase.name}</span>` +
+                    `<span><small>Kecepatan</small><b>${spd}x</b></span>` +
+                    `<span><small>Bom</small><b>${phase.maxBombs}</b></span>` +
+                    `<span><small>Jangkauan</small><b>3 ubin</b></span>` +
+                    `<span><small>Waktu</small><b>${elapsed}s</b></span>`;
             }
 
             function makeBot(id, name, color, r, c) {
@@ -492,12 +645,17 @@ def get_frontend():
             }
 
             function initGame() {
-                grid = JSON.parse(JSON.stringify(MAP_TEMPLATE));
+                validateMaps();
+                const selectedMap = MAPS[document.getElementById('mapSelect').value] || MAPS.classic;
+                grid = JSON.parse(JSON.stringify(selectedMap.grid));
+                document.getElementById('mapNameGame').innerText = selectedMap.name;
+                document.getElementById('mapNameAnalysis').innerText = selectedMap.name;
                 currentGameMode = document.getElementById('modeSelect').value;
 
                 if (currentGameMode === "PvB") {
                     document.getElementById('botBControl').style.display = 'none';
                     document.getElementById('bot2StatsBox').style.display = 'none';
+                    document.querySelectorAll('.bot-b-column').forEach(el => { el.style.display = 'none'; });
                     document.getElementById('playerStats').style.display = 'block';
 
                     player = {
@@ -506,16 +664,17 @@ def get_frontend():
                         ammo: 1, maxAmmo: 1,
                         isReloading: false, reloadTimer: 0, reloadMaxTimer: 150
                     };
-                    enemies = [ makeBot(1, "Bot 1", '#bd93f9', 11, 13) ];
+                    enemies = [ makeBot(1, "Bot 1", COLORS.botA, 11, 13) ];
                 } else {
                     document.getElementById('botBControl').style.display = 'block';
-                    document.getElementById('bot2StatsBox').style.display = 'block';
+                    document.getElementById('bot2StatsBox').style.display = '';
+                    document.querySelectorAll('.bot-b-column').forEach(el => { el.style.display = ''; });
                     document.getElementById('playerStats').style.display = 'none';
 
                     player = { id: 0, r: 1, c: 1, prevR: 1, prevC: 1, alive: false, health: 0, iFrames: 0, ammo: 0, maxAmmo: 1 };
                     enemies = [
-                        makeBot(1, "Bot 1", '#bd93f9', 1, 1),
-                        makeBot(2, "Bot 2", '#89b4fa', 11, 13)
+                        makeBot(1, "Bot 1", COLORS.botA, 1, 1),
+                        makeBot(2, "Bot 2", COLORS.botB, 11, 13)
                     ];
                 }
 
@@ -535,13 +694,11 @@ def get_frontend():
 
                 playerPixel = { x: player.c * CELL, y: player.r * CELL };
                 enemyPixels = enemies.map(e => ({ x: e.c * CELL, y: e.r * CELL }));
+                render();
             }
 
             function updateHealthDisplay() {
-                let hearts = "";
-                for (let i = 0; i < player.health; i++) hearts += "❤️ ";
-                if (player.health <= 0) hearts = "💀 Mati";
-                document.getElementById('healthVal').innerText = hearts;
+                document.getElementById('healthVal').innerText = `${player.health} / 3${player.health <= 0 ? ' · Mati' : ''}`;
             }
 
             function updateAmmoDisplay() {
@@ -551,12 +708,12 @@ def get_frontend():
                 if (player.isReloading) {
                     let progress = ((player.reloadMaxTimer - player.reloadTimer) / player.reloadMaxTimer) * 100;
                     fillEl.style.width = `${progress}%`;
-                    ammoEl.innerText = `🔄 Reloading...`;
-                    ammoEl.style.color = "#f9e2af";
+                    ammoEl.innerText = `Mengisi ulang...`;
+                    ammoEl.style.color = "";
                 } else {
                     fillEl.style.width = `100%`;
-                    ammoEl.innerText = player.ammo > 0 ? "💣 (1/1)" : "Kosong";
-                    ammoEl.style.color = "#cdd6f4";
+                    ammoEl.innerText = player.ammo > 0 ? "1 / 1" : "Kosong";
+                    ammoEl.style.color = "";
                 }
             }
 
@@ -570,7 +727,7 @@ def get_frontend():
                         const algo1 = document.getElementById('algoSelectA').value;
                         seriesStats.wins1++;
                         updateSeriesHUD();
-                        setGameOver(false, `🤖 Bot 1 (${algo1}) MENANG KO!`);
+                        setGameOver(false, `Bot 1 (${algo1}) menang KO!`);
                     }
                 }
             }
@@ -940,12 +1097,18 @@ def get_frontend():
                                 seriesStats.nodesSum1 += resItem.nodes_explored;
                                 seriesStats.timeSum1 += resItem.exec_time_ms;
                                 seriesStats.calls1++;
+                                document.getElementById('depthA').innerText = resItem.max_depth;
+                                document.getElementById('solutionA').innerText = resItem.solution_depth;
+                                seriesStats.depthSum1 += resItem.max_depth; seriesStats.solutionSum1 += resItem.solution_depth;
                             } else {
                                 document.getElementById('nodesB').innerText = resItem.nodes_explored;
                                 document.getElementById('timeB').innerText = resItem.exec_time_ms + ' ms';
                                 seriesStats.nodesSum2 += resItem.nodes_explored;
                                 seriesStats.timeSum2 += resItem.exec_time_ms;
                                 seriesStats.calls2++;
+                                document.getElementById('depthB').innerText = resItem.max_depth;
+                                document.getElementById('solutionB').innerText = resItem.solution_depth;
+                                seriesStats.depthSum2 += resItem.max_depth; seriesStats.solutionSum2 += resItem.solution_depth;
                             }
                             updateSeriesHUD();
 
@@ -1040,7 +1203,7 @@ def get_frontend():
                         const algo1 = document.getElementById('algoSelectA').value;
                         seriesStats.wins1++;
                         updateSeriesHUD();
-                        setGameOver(false, `🤖 Bot 1 (${algo1}) MENANG (Player terjepit arena)!`);
+                        setGameOver(false, `Bot 1 (${algo1}) menang; pemain terjepit arena.`);
                     } else {
                         checkWinCondition();
                     }
@@ -1119,7 +1282,7 @@ def get_frontend():
                     if (aliveBots.length === 0 && player.alive) {
                         seriesStats.wins2++;
                         updateSeriesHUD();
-                        setGameOver(true, `🎉 PLAYER MENANG KO mengalahkan Bot 1 (${algoA})!`);
+                        setGameOver(true, `Pemain menang KO mengalahkan Bot 1 (${algoA})!`);
                     }
                 } else {
                     if (aliveBots.length === 1) {
@@ -1128,11 +1291,11 @@ def get_frontend():
                         if (winner.id === 1) seriesStats.wins1++;
                         else seriesStats.wins2++;
                         updateSeriesHUD();
-                        setGameOver(true, `🏆 ${winner.name} (${winAlgo}) MENANG KO!`);
+                        setGameOver(true, `${winner.name} (${winAlgo}) menang KO!`);
                     } else if (aliveBots.length === 0) {
                         seriesStats.draws++;
                         updateSeriesHUD();
-                        setGameOver(false, `💥 DOUBLE KO! Kedua algoritma (${algoA} & ${algoB}) tereliminasi bersamaan!`);
+                        setGameOver(false, `Double KO! Kedua algoritma (${algoA} & ${algoB}) tereliminasi bersamaan!`);
                     }
                 }
             }
@@ -1141,55 +1304,65 @@ def get_frontend():
                 gameOver = true;
                 const msg = document.getElementById('statusMsg');
                 msg.innerText = text;
-                msg.style.color = isWin ? "#a6e3a1" : "#f38ba8";
+                msg.style.color = isWin ? 'var(--bot-a)' : 'var(--danger)';
             }
 
             function lerp(start, end, amt) { return (1 - amt) * start + amt * end; }
 
             function drawPlayer(x, y) {
                 if (player.iFrames % 10 > 5) return;
-                ctx.fillStyle = '#50fa7b';
+                ctx.fillStyle = COLORS.player;
                 ctx.beginPath();
-                ctx.arc(x + CELL/2, y + CELL/2, CELL/2 - 4, 0, Math.PI*2);
+                ctx.arc(x + CELL/2, y + CELL/2, CELL/2 - 5, 0, Math.PI*2);
                 ctx.fill();
-                ctx.fillStyle = '#1e1e2e';
-                ctx.fillRect(x + CELL/2 - 7, y + CELL/2 - 5, 4, 6);
-                ctx.fillRect(x + CELL/2 + 3, y + CELL/2 - 5, 4, 6);
+                ctx.strokeStyle = COLORS.ink;
+                ctx.lineWidth = 2;
+                ctx.stroke();
+                ctx.fillStyle = COLORS.ink;
+                ctx.fillRect(x + CELL/2 - 7, y + CELL/2 - 4, 3, 5);
+                ctx.fillRect(x + CELL/2 + 4, y + CELL/2 - 4, 3, 5);
             }
 
             function drawEnemyBot(x, y, color) {
                 ctx.fillStyle = color;
-                ctx.fillRect(x + 6, y + 8, CELL - 12, CELL - 12);
-                ctx.fillStyle = '#ff79c6';
-                ctx.fillRect(x + CELL/2 - 2, y + 2, 4, 6);
                 ctx.beginPath();
-                ctx.arc(x + CELL/2, y + 2, 3, 0, Math.PI*2);
+                if (color === COLORS.botA) {
+                    ctx.rect(x + 7, y + 7, CELL - 14, CELL - 14);
+                } else {
+                    ctx.moveTo(x + CELL/2, y + 5);
+                    ctx.lineTo(x + CELL - 5, y + CELL/2);
+                    ctx.lineTo(x + CELL/2, y + CELL - 5);
+                    ctx.lineTo(x + 5, y + CELL/2);
+                    ctx.closePath();
+                }
                 ctx.fill();
-                ctx.fillStyle = '#ff5555';
-                ctx.fillRect(x + 10, y + 14, 6, 6);
-                ctx.fillRect(x + CELL - 16, y + 14, 6, 6);
+                ctx.strokeStyle = COLORS.ink;
+                ctx.lineWidth = 2;
+                ctx.stroke();
+                ctx.fillStyle = COLORS.ink;
+                ctx.fillRect(x + CELL/2 - 5, y + CELL/2 - 2, 10, 3);
             }
 
             function drawBomb(x, y, timer) {
                 let pulse = (timer < 24 && timer % 6 < 3) ? 2 : 0;
-                ctx.fillStyle = pulse ? '#ff5555' : '#21222c';
+                ctx.fillStyle = pulse ? COLORS.danger : COLORS.wall;
                 ctx.beginPath();
                 ctx.arc(x + CELL/2, y + CELL/2 + 2, CELL/2 - 6 + pulse, 0, Math.PI*2);
                 ctx.fill();
 
-                ctx.fillStyle = '#6272a4';
+                ctx.fillStyle = COLORS.player;
                 ctx.beginPath();
                 ctx.arc(x + CELL/2 - 4, y + CELL/2 - 2, 3, 0, Math.PI*2);
                 ctx.fill();
 
-                ctx.strokeStyle = '#ffb86c';
+                ctx.strokeStyle = COLORS.botB;
                 ctx.lineWidth = 3;
                 ctx.beginPath();
                 ctx.moveTo(x + CELL/2, y + 10);
                 ctx.lineTo(x + CELL/2 + 6, y + 4);
                 ctx.stroke();
 
-                ctx.fillStyle = '#ff5555';
+                ctx.fillStyle = COLORS.danger;
                 ctx.beginPath();
                 ctx.arc(x + CELL/2 + 6, y + 4, 4 + (pulse ? 2 : 0), 0, Math.PI*2);
                 ctx.fill();
@@ -1200,16 +1373,44 @@ def get_frontend():
 
                 for (let r = 0; r < ROWS; r++) {
                     for (let c = 0; c < COLS; c++) {
-                        if (grid[r][c] === 1) ctx.fillStyle = '#45475a';
-                        else if (grid[r][c] === 2) ctx.fillStyle = '#ffb86c';
-                        else if (grid[r][c] === 4) ctx.fillStyle = '#6e3b4e';
-                        else ctx.fillStyle = '#1e1e2e';
-                        ctx.fillRect(c * CELL, r * CELL, CELL - 1, CELL - 1);
+                        const x = c * CELL, y = r * CELL;
+                        if (grid[r][c] === 1) {
+                            ctx.fillStyle = COLORS.wall;
+                            ctx.fillRect(x, y, CELL, CELL);
+                            ctx.strokeStyle = COLORS.line;
+                            ctx.lineWidth = 1;
+                            ctx.strokeRect(x + 4, y + 4, CELL - 8, CELL - 8);
+                        } else if (grid[r][c] === 2) {
+                            ctx.fillStyle = COLORS.brick;
+                            ctx.fillRect(x, y, CELL, CELL);
+                            ctx.strokeStyle = COLORS.floor;
+                            ctx.lineWidth = 2;
+                            ctx.beginPath();
+                            ctx.moveTo(x, y + 13); ctx.lineTo(x + CELL, y + 13);
+                            ctx.moveTo(x, y + 27); ctx.lineTo(x + CELL, y + 27);
+                            ctx.moveTo(x + 13, y); ctx.lineTo(x + 13, y + 13);
+                            ctx.moveTo(x + 27, y + 13); ctx.lineTo(x + 27, y + 27);
+                            ctx.moveTo(x + 13, y + 27); ctx.lineTo(x + 13, y + CELL);
+                            ctx.stroke();
+                        } else if (grid[r][c] === 4) {
+                            ctx.fillStyle = COLORS.collapse;
+                            ctx.fillRect(x, y, CELL, CELL);
+                            ctx.strokeStyle = COLORS.danger;
+                            ctx.lineWidth = 2;
+                            ctx.strokeRect(x + 4, y + 4, CELL - 8, CELL - 8);
+                            ctx.beginPath(); ctx.moveTo(x + 7, y + 33); ctx.lineTo(x + 33, y + 7); ctx.stroke();
+                        } else {
+                            ctx.fillStyle = COLORS.floor;
+                            ctx.fillRect(x, y, CELL, CELL);
+                            ctx.strokeStyle = COLORS.grid;
+                            ctx.lineWidth = 1;
+                            ctx.strokeRect(x, y, CELL, CELL);
+                        }
                     }
                 }
 
                 aiPaths.forEach(item => {
-                    ctx.fillStyle = item.color === '#bd93f9' ? 'rgba(189, 147, 249, 0.25)' : 'rgba(137, 180, 250, 0.25)';
+                    ctx.fillStyle = item.color === COLORS.botA ? COLORS.pathA : COLORS.pathB;
                     item.path.forEach(p => {
                         ctx.fillRect(p[1] * CELL + 10, p[0] * CELL + 10, CELL - 20, CELL - 20);
                     });
@@ -1217,7 +1418,7 @@ def get_frontend():
 
                 bombs.forEach(b => drawBomb(b.c * CELL, b.r * CELL, b.timer));
 
-                ctx.fillStyle = 'rgba(255, 85, 85, 0.85)';
+                ctx.fillStyle = COLORS.danger;
                 explosions.forEach(ex => ctx.fillRect(ex.c * CELL, ex.r * CELL, CELL - 1, CELL - 1));
 
                 if (player.alive) {
@@ -1238,6 +1439,7 @@ def get_frontend():
             function stepSimulationOnce() {
                 if (gameOver) return;
                 simTicks++;
+                document.getElementById('tickValue').innerText = simTicks;
                 if (simTicks % 20 === 0) updatePhaseHUD();
                 updateSuddenDeathCollapse();
                 updateBombsAndExplosions();
@@ -1246,13 +1448,11 @@ def get_frontend():
                 }
             }
 
+            let paused = false, speedAccumulator = 0;
             function gameLoop() {
-                const steps = gameOver ? 0 : getEffectiveSpeed();
-                for (let s = 0; s < steps; s++) {
-                    stepSimulationOnce();
-                    if (gameOver) break;
-                }
-                render();
+                speedAccumulator += (grid && !paused && !gameOver) ? getEffectiveSpeed() : 0;
+                while (speedAccumulator >= 1 && !gameOver) { stepSimulationOnce(); speedAccumulator -= 1; }
+                if (grid) render();
                 requestAnimationFrame(gameLoop);
             }
 
@@ -1278,13 +1478,27 @@ def get_frontend():
                 }
             });
 
-            document.getElementById('modeSelect').addEventListener('change', () => { resetSeriesStats(); initGame(); });
-            document.getElementById('speedSelect').addEventListener('change', updatePhaseHUD);
-            document.getElementById('algoSelectA').addEventListener('change', () => { resetSeriesStats(); initGame(); });
-            document.getElementById('algoSelectB').addEventListener('change', () => { resetSeriesStats(); initGame(); });
-            document.getElementById('restartBtn').addEventListener('click', initGame);
+            const menuForm = document.getElementById('menuForm');
+            ['modeSelect','algoSelectA','algoSelectB','speedSelect'].forEach(id => menuForm.appendChild(document.getElementById(id).closest('.field')));
+            validateMaps();
+            drawMapPreviews();
+            document.querySelectorAll('.map-card').forEach(card => card.addEventListener('click', () => {
+                document.getElementById('mapSelect').value=card.dataset.map;
+                document.querySelectorAll('.map-card').forEach(other=>other.setAttribute('aria-pressed',String(other===card)));
+            }));
+            document.getElementById('mapSelect').addEventListener('change', e => document.querySelectorAll('.map-card').forEach(card=>card.setAttribute('aria-pressed',String(card.dataset.map===e.target.value))));
+            document.getElementById('startBtn').addEventListener('click', () => {
+                document.getElementById('runtimeSpeedSelect').value=document.getElementById('speedSelect').value;
+                resetSeriesStats(); initGame(); paused=false; document.getElementById('pauseBtn').innerText='Jeda'; document.body.classList.add('playing'); document.getElementById('startMenu').style.display='none';
+            });
+            document.getElementById('menuBtn').addEventListener('click', () => { paused=true; document.body.classList.remove('playing'); document.getElementById('startMenu').style.display='grid'; });
+            document.getElementById('pauseBtn').addEventListener('click', e => { paused=!paused; e.currentTarget.innerText=paused?'Lanjut':'Jeda'; });
+            document.getElementById('stepBtn').addEventListener('click', () => { if(paused) stepSimulationOnce(); });
+            document.getElementById('speedSelect').addEventListener('change', () => { document.getElementById('runtimeSpeedSelect').value=document.getElementById('speedSelect').value; updatePhaseHUD(); });
+            document.getElementById('runtimeSpeedSelect').addEventListener('change', e => { document.getElementById('speedSelect').value=e.target.value; updatePhaseHUD(); });
+            document.getElementById('autoEscalate').addEventListener('change', updatePhaseHUD);
+            document.getElementById('restartBtn').addEventListener('click', () => { resetSeriesStats(); initGame(); });
 
-            initGame();
             gameLoop();
         </script>
     </body>
