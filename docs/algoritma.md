@@ -1,6 +1,6 @@
 # Algoritma Pathfinding
 
-Dokumen ini menjelaskan model biaya, cara kerja tiap algoritma, mekanisme anti-loop, metrik, serta perbedaan implementasi server dan notebook.
+Dokumen ini menjelaskan model biaya, batas depth, cara kerja tiap algoritma, mekanisme anti-loop, metrik, serta perbedaan implementasi server dan notebook.
 
 ## 1. Representasi masalah
 
@@ -11,87 +11,100 @@ Aplikasi memakai grid **13 baris × 15 kolom** (kanvas 15×13 ubin). Dokumen dan
 - **Biaya langkah** (`g`): bergantung pada isi ubin tujuan dan penalti tambahan.
 - **Tujuan**: mencapai `target` dengan biaya serendah mungkin (untuk algoritma berbobot), atau jumlah langkah sedikit mungkin (BFS).
 - **Heuristik** (`h`): jarak Manhattan ke target.
+- **Batas depth** (`max_depth_limit`): jumlah edge maksimum yang boleh diekspansi; `0` berarti tak terbatas.
 
 Grid hanya menyediakan dua jenis ubin yang dapat dilalui oleh engine:
 
 | Nilai | Arti | Biaya dasar |
 | --- | --- | --- |
 | `0` | Lantai | `1.0` |
-| `2` | Dinding kayu | `5.5` |
+| `2` | Dinding kayu | `4.0` |
 | `1`, `3`, `4` | Dinding permanen, bom, runtuh | Tidak dapat dilalui |
 
 Dinding kayu dianggap dapat dilalui karena bot memang dirancang untuk menembusnya dengan bom. Biaya tinggi membuat algoritma berbobot memilih memutar jalan bila rutenya tidak terlalu jauh, tetapi tetap memilih menembus kayu bila itu jauh lebih efisien.
 
 ## 2. Model biaya
 
-Konstanta di `main.py`:
+Konstanta di `main.py` saat ini ditulis langsung di `get_neighbors`:
 
 ```python
-WOOD_COST = 5.5
-DANGER_COST = 35.0
-HISTORY_MAX_PENALTY = 16.0
+step_cost = 4.0 if tile == 2 else 1.0
+if nxt in danger_cells:
+    step_cost += 14.0
+if nxt in history_weights:
+    step_cost += history_weights[nxt]
 ```
 
-Biaya memasuki ubin `(nr, nc)` dari `curr`:
+Biaya memasuki ubin `(nr, nc)`:
 
 ```text
 cost = base(nr, nc) + history_weight(nr, nc) + danger_penalty(nr, nc)
 
 base(nr, nc)        = 1.0  jika grid[nr][nc] == 0
-                    = 5.5  jika grid[nr][nc] == 2
-history_weight      = akumulasi bobot recency kunjungan sebelumnya
-danger_penalty      = 35.0 jika ubin ada di daftar danger, selain itu 0
+                    = 4.0  jika grid[nr][nc] == 2
+danger_penalty      = 14.0 jika ubin ada di daftar danger, selain itu 0
 ```
 
 ### 2.1 History penalty (anti-loop)
 
-Frontend mengirim maksimal 22 posisi terakhir bot. Server mengubahnya menjadi bobot:
+Frontend mengirim maksimal 22 posisi terakhir bot, dari terlama ke terbaru. Server mengubahnya menjadi bobot:
 
 ```python
-total_h = len(history)                    # 0 jika kosong
-for idx, h in enumerate(history):
-    recency = (idx + 1) / total_h         # posisi terbaru ≈ 1.0, terlama ≈ 1/total_h
-    history_weights[h] += recency * 16.0
+for idx, pos in enumerate(history):
+    key = (pos[0], pos[1])
+    history_weights[key] += 0.65 + (idx * 0.05)
 ```
 
-Konsekuensi:
+Karakteristik:
 
-- Ubin yang baru saja dilewati mendapat penalti hingga **16** per kunjungan.
-- Kunjungan berulang menumpuk, sehingga ubin yang berulang kali dilewati menjadi sangat mahal.
-- Penalti maksimum per kunjungan (16) lebih besar dari biaya kayu (5.5). Bot didorong membuka jalur baru atau menembus kayu daripada berputar-putar di jalur yang sama.
-- Ubin lama tetap mendapat penalti kecil, sehingga rute tidak langsung kembali ke sana.
-
-History penalty hanya memengaruhi algoritma yang memakai biaya langkah (UCS, Dijkstra, A\*). BFS dan GBFS mengabaikan biaya, sehingga efeknya tidak langsung terasa pada pemilihan rute mereka.
+- Posisi paling lama mendapat tambahan `0.65`; posisi terbaru (indeks ke-21) mendapat `0.65 + 21 × 0.05 = 1.70`.
+- Bila ubin yang sama muncul beberapa kali, nilainya **terakumulasi**.
+- Tidak ada batas maksimum per ubin; penalti tumbuh sesuai panjang dan pengulangan history.
+- Karena nilainya lebih kecil dari biaya kayu (`4.0`), history penalty mendorong variasi rute tanpa langsung memaksa bot menembus kayu.
+- Hanya algoritma berbobot (UCS, Dijkstra, A\*) yang terpengaruh. BFS dan GBFS mengabaikan biaya.
 
 ### 2.2 Danger penalty
 
-Frontend menghitung `danger` dari seluruh bom aktif, termasuk propagasi ledakan berantai, lalu mengirim daftar ubinnya. Server menambahkan **+35** datar ke setiap ubin bahaya.
+Frontend menghitung `danger` dari seluruh bom aktif, termasuk propagasi ledakan berantai, lalu mengirim daftar ubinnya. Server menambahkan **+14** datar ke setiap ubin bahaya.
 
 Penalti ini bersifat *soft*: ubin tetap dapat dilalui jika satu-satunya jalan menuju target melewati area bahaya. Keputusan menghindar secara mutlak ditangani terpisah di frontend oleh `getEscapeMove()`, yang berjalan sebelum pathfinding diikuti.
 
-### 2.3 Admissibility heuristik
+### 2.3 Batas depth
 
-Heuristik Manhattan menghitung jumlah langkah minimum tanpa memedulikan rintangan. Karena setiap langkah berbiaya minimal 1.0, berlaku:
+Parameter `max_depth` pada `EnemyInfo` diteruskan sebagai `max_depth_limit` ke `run_search`:
+
+- `depth_from[start] = 0`.
+- Sebuah node dengan `depth >= max_depth_limit` tetap dihitung sebagai diekspansi, tetapi tetangganya tidak dimasukkan ke frontier.
+- `0` berarti tanpa batas (pencarian penuh).
+- Jika target berada di luar batas, algoritma berhenti dengan path parsial ke node fallback.
+- Batas ini diterapkan pada kelima algoritma, termasuk BFS.
+
+Pilihan UI: 2, 4, 6, 8, 12 (default), 16, 20, dan tak terbatas.
+
+### 2.4 Admissibility heuristik
+
+Heuristik Manhattan menghitung jumlah langkah minimum tanpa memedulikan rintangan. Karena setiap langkah berbiaya minimal `1.0`, berlaku:
 
 ```text
 h(n) = |r - r_goal| + |c - c_goal| <= biaya sebenarnya dari n ke goal
 ```
 
-Maka heuristik **admissible** dan **konsisten** terhadap model biaya ini (termasuk biaya kayu, history, dan danger). A\* karena itu optimal terhadap model biaya, meskipun tetap bisa mengekspansi lebih banyak node karena heuristik tidak mengetahui mahalnya kayu atau bahaya.
+Maka heuristik **admissible** dan **konsisten** terhadap model biaya ini (termasuk biaya kayu, history, dan danger). A\* karena itu optimal terhadap model biaya pada pencarian tanpa batas depth. Dengan batas depth, optimalitas hanya berlaku di dalam ruang yang dapat diekspansi.
 
 ## 3. Ekspansi tetangga
 
 ```python
-def get_neighbors(cell, grid, history_weights, danger_cells, order):
-    for dr, dc in order:                  # urutan 4 arah yang sudah diacak
-        if dalam batas:
-            if grid == 0: cost = 1.0 + history + danger
-            elif grid == 2: cost = 5.5 + history + danger
+for dr, dc in order:                  # urutan 4 arah yang sudah diacak
+    if di luar batas: lanjut
+    if grid[nr][nc] in (1, 3, 4): lanjut
+    step_cost = 4.0 if grid[nr][nc] == 2 else 1.0
+    step_cost += 14.0 if bahaya
+    step_cost += history_weight
 ```
 
-- Urutan arah diacak **sekali per pencarian** (`random_dir_order()`), bukan per node.
-- Pengacakan ini adalah mekanisme *tie-breaking* agar dua bot dengan algoritma sama tidak selalu memilih rute identik dan agar bias arah (atas selalu dicek lebih dulu) hilang.
-- Karena itu, dua pemanggilan dengan input identik dapat menghasilkan path berbeda dengan biaya sama.
+- Urutan arah diacak **sekali per pencarian** (`random.shuffle(order)`).
+- Pengacakan ini adalah mekanisme *tie-breaking* agar dua bot dengan algoritma sama tidak selalu memilih rute identik dan agar bias arah hilang.
+- Dua pemanggilan dengan input identik dapat menghasilkan path berbeda dengan biaya sama.
 
 ## 4. Algoritma
 
@@ -99,13 +112,16 @@ def get_neighbors(cell, grid, history_weights, danger_cells, order):
 
 **Kode API:** `BFS`
 
-BFS menjelajah berdasarkan jumlah langkah, menggunakan antrean FIFO.
+BFS menjelajah berdasarkan jumlah langkah dengan antrean FIFO.
 
 ```text
 queue = [start]; visited = {start}
 while queue:
     curr = queue.pop_front()
+    nodes++; max_depth = max(max_depth, depth[curr])
+    fallback(curr)
     if curr == target: return path
+    if max_depth_limit > 0 and depth[curr] >= max_depth_limit: continue
     for nxt in neighbors(curr):
         if nxt not in visited:
             visited.add(nxt); came_from[nxt] = curr; queue.push_back(nxt)
@@ -113,58 +129,58 @@ while queue:
 
 Karakteristik:
 
-- Mengabaikan `WOOD_COST`, `DANGER_COST`, dan history dalam memilih urutan ekspansi.
-- Menjamin jumlah langkah minimum (bukan biaya minimum), karena setiap edge dihitung sama.
-- Cocok sebagai *baseline* untuk membandingkan jumlah node yang dieksplorasi.
-- Berhenti begitu target ditemukan (early exit).
+- Mengabaikan biaya kayu, danger, dan history dalam memilih urutan ekspansi.
+- Menjamin jumlah langkah minimum (bukan biaya minimum) pada pencarian tanpa batas depth.
+- Berhenti begitu target ditemukan.
+- Cocok sebagai *baseline* jumlah node yang dieksplorasi.
 
 ### 4.2 Uniform Cost Search (UCS)
 
 **Kode API:** `UCS`
 
-UCS adalah Dijkstra dengan **early exit**: berhenti saat target dikeluarkan dari priority queue.
+UCS adalah pencarian berbobot dengan prioritas `g(n)` dan *early exit* saat target dikeluarkan dari priority queue.
 
 ```text
 pq = [(0, start)]; g[start] = 0
 while pq:
     g_curr, curr = pq.pop_min()
     if g_curr > g[curr]: continue
+    nodes++; fallback(curr)
     if curr == target: return path
+    if max_depth_limit > 0 and depth[curr] >= max_depth_limit: continue
     for nxt, cost in neighbors(curr):
         if g_curr + cost < g[nxt]:
-            g[nxt] = g_curr + cost; came_from[nxt] = curr
-            pq.push(g_curr + cost, nxt)
+            update(g, came_from, pq)
 ```
 
 Karakteristik:
 
-- Menghormati seluruh komponen biaya (kayu, history, danger).
-- Optimal terhadap biaya.
-- Biasanya mengeksplorasi lebih sedikit node daripada Dijkstra karena berhenti di target.
+- Menghormati seluruh komponen biaya.
+- Optimal terhadap biaya pada pencarian tanpa batas depth.
+- Karena Dijkstra di server juga berhenti di target, jumlah node keduanya praktis sama.
 
 ### 4.3 Dijkstra
 
 **Kode API:** `DIJKSTRA`
 
-Implementasi Dijkstra di server **tidak** berhenti saat target ditemukan. Algoritma membangun pohon shortest-path untuk seluruh area terjangkau, lalu merekonstruksi path ke target.
+Dijkstra di server saat ini **berhenti saat target ditemukan**, sama seperti UCS. Algoritma tidak lagi membangun pohon shortest-path untuk seluruh grid. Perbedaannya dengan UCS hanya pada implementasi/penamaan; secara perilaku keduanya setara.
 
 ```text
 pq = [(0, start)]; g[start] = 0
 while pq:
     g_curr, curr = pq.pop_min()
     if g_curr > g[curr]: continue
-    for nxt, cost in neighbors(curr):
-        relax(g, curr, nxt, cost, pq)
-if target in came_from:
-    return reconstruct(target)
+    nodes++; fallback(curr)
+    if curr == target: return path
+    if depth limit tercapai: continue
+    relax semua tetangga
 ```
 
 Karakteristik:
 
-- Menghasilkan path optimal yang sama kualitasnya dengan UCS.
-- Mengeksplorasi seluruh komponen terhubung, sehingga `nodes_explored` biasanya paling besar.
-- Berguna sebagai pembanding biaya komputasi "exhaustive search".
-- Jika target tidak dapat dijangkau, Dijkstra tetap menyelesaikan seluruh grid sebelum masuk ke mekanisme fallback.
+- Menghormati biaya kayu, history, dan danger.
+- Optimal terhadap biaya tanpa batas depth.
+- Komentar lama "shortest-path tree" pada kode tidak lagi menggambarkan perilaku karena ada early exit.
 
 ### 4.4 Greedy Best-First Search (GBFS)
 
@@ -175,8 +191,10 @@ GBFS hanya memprioritaskan jarak perkiraan ke target.
 ```text
 pq = [(h(start), start)]; visited = {start}
 while pq:
-    _, curr = pq.pop_min()
+    curr = pq.pop_min()
+    nodes++; fallback(curr)
     if curr == target: return path
+    if depth limit tercapai: continue
     for nxt in neighbors(curr):
         if nxt not in visited:
             visited.add(nxt); came_from[nxt] = curr
@@ -185,8 +203,8 @@ while pq:
 
 Karakteristik:
 
-- Sangat agresif menuju target, sering mengeksplorasi node paling sedikit.
-- Tidak optimal: dapat masuk kantong buntu, menembus kayu meski ada jalan memutar murah, atau melewati zona bahaya tanpa perhitungan biaya.
+- Sangat agresif menuju target; sering mengeksplorasi node paling sedikit.
+- Tidak optimal: dapat masuk kantong buntu, menembus kayu meski ada jalan memutar murah, atau melewati zona bahaya.
 - Tetap *complete* pada graf berhingga karena memakai `visited`.
 - Biaya langkah diabaikan sepenuhnya saat menentukan prioritas.
 
@@ -201,103 +219,109 @@ pq = [(h(start), 0, start)]; g[start] = 0
 while pq:
     f, g_curr, curr = pq.pop_min()
     if g_curr > g[curr]: continue          # entri basi
+    nodes++; fallback(curr)
     if curr == target: return path
+    if depth limit tercapai: continue
     for nxt, cost in neighbors(curr):
         if g_curr + cost < g[nxt]:
-            g[nxt] = g_curr + cost; came_from[nxt] = curr
+            g[nxt] = g_curr + cost
+            came_from[nxt] = curr
             pq.push(g[nxt] + h(nxt), g[nxt], nxt)
 ```
 
 Karakteristik:
 
 - Menghormati seluruh komponen biaya.
-- Dengan heuristik admissible dan konsisten, path yang dihasilkan optimal terhadap model biaya.
+- Dengan heuristik admissible dan konsisten, path optimal pada pencarian tanpa batas depth.
 - Umumnya menjadi kompromi terbaik antara jumlah node dan kualitas path.
 - Pemeriksaan `g_curr > g[curr]` membuang entri lama yang sudah diperbaiki.
 
 ## 5. Fallback
 
-Semua algoritma melacak node dengan jarak Manhattan terkecil ke target:
+Semua algoritma melacak node dengan skor terbaik:
 
-```python
-best_fallback = start
-best_fallback_dist = manhattan(start, target)
-# setiap node yang diekspansi:
-if manhattan(curr, target) < best_fallback_dist:
-    best_fallback = curr
+```text
+skor(node) = (manhattan(node, target), cost atau depth)
 ```
 
-Jika pencarian selesai tanpa mencapai target (misalnya target tertutup dinding permanen atau bom), server mengembalikan path menuju node terdekat tersebut:
+- Untuk BFS dan GBFS, komponen kedua adalah `depth`.
+- Untuk UCS, Dijkstra, dan A\*, komponen kedua adalah biaya `g`.
+- Perbandingan dilakukan secara leksikografis: jarak Manhattan lebih diutamakan.
+- Start tidak pernah dijadikan fallback.
 
-- `full_path` berisi path parsial.
-- `solution_depth` diisi `0` untuk menandai bahwa target tidak tercapai.
-- Jika tidak ada node yang lebih dekat dari start, path kosong dikembalikan.
+Jika target tidak tercapai:
 
-Fallback membuat bot tidak diam total saat target mustahil dijangkau, tetapi juga berarti `next_move` dapat mengarah ke ubin yang bukan target sebenarnya.
+- `full_path` berisi path parsial menuju fallback.
+- `solution_depth` diisi `len(path) - 1`, bukan `0`.
+- Jika tidak ada node selain start yang ditemukan, `full_path` kosong dan `next_move` sama dengan posisi awal.
+
+Karena `solution_depth` tidak lagi menandai kegagalan, klien harus memeriksa apakah ubin terakhir `full_path` sama dengan target.
 
 ## 6. Kompleksitas
 
-Untuk grid 15×13, `V = 195` dan `E ≤ 4V` (maksimal sekitar 780 edge).
+Untuk grid 15×13, `V = 195` dan `E ≤ 4V` (maksimal sekitar 780 edge). Dengan batas depth `d`, hanya node hingga kedalaman `d` yang diekspansi.
 
-| Algoritma | Waktu | Memori | Optimal | Complete |
+| Algoritma | Waktu | Memori | Optimal (tanpa depth limit) | Complete |
 | --- | --- | --- | --- | --- |
 | BFS | `O(V + E)` | `O(V)` | Jumlah langkah | Ya |
 | UCS | `O(E log V)` | `O(V)` | Biaya | Ya |
-| Dijkstra | `O((V + E) log V)` | `O(V)` | Biaya | Ya |
+| Dijkstra | `O(E log V)` | `O(V)` | Biaya | Ya |
 | GBFS | `O(V log V)` (praktiknya jauh lebih kecil) | `O(V)` | Tidak | Ya |
-| A\* | `O(E log V)` hingga `O(V log V)`, bergantung heuristik | `O(V)` | Biaya (heuristik admissible) | Ya |
+| A\* | `O(E log V)` hingga `O(V log V)`, bergantung heuristik | `O(V)` | Biaya | Ya |
 
-Catatan: `search_depth()` menelusuri parent untuk setiap node yang diekspansi. Instrumentasi ini menambah biaya `O(depth)` per node, sehingga waktu eksekusi yang dilaporkan bukan waktu pencarian murni.
+Dengan depth limit, algoritma dapat berhenti sebelum seluruh ruang keadaan dieksplorasi; konsekuensinya target di luar batas tidak tercapai.
 
 ## 7. Metrik
 
 | Field | Definisi | Catatan |
 | --- | --- | --- |
-| `nodes_explored` | Jumlah node yang dikeluarkan/diekspansi dari frontier | Termasuk node basi? Tidak: UCS/Dijkstra/A\* melewati entri basi sebelum menghitung |
-| `max_depth` | Jumlah edge maksimum dari start ke node yang pernah diekspansi | Bukan biaya; node dengan kayu bisa punya depth kecil |
-| `solution_depth` | `len(full_path) - 1` bila target tercapai, selain itu `0` | Untuk path satu titik, nilainya `0` |
+| `max_depth_limit` | Batas depth yang dipakai | `0` = tak terbatas |
+| `nodes_explored` | Jumlah node yang diekspansi | Entri basi tidak dihitung |
+| `max_depth` | Jumlah edge maksimum dari start ke node yang diekspansi | Bukan biaya |
+| `solution_depth` | `len(full_path) - 1` | Berlaku juga untuk path fallback |
 | `exec_time_ms` | Durasi `run_search` diukur dengan `time.perf_counter()` | Tidak termasuk HTTP/JSON |
 
-Pada panel frontend, nilai "Dikunjungi", "Depth maks.", "Depth solusi", dan "Waktu" menampilkan nilai pemanggilan terakhir, sedangkan angka dalam tanda kurung adalah rata-rata seri.
+Pada panel frontend, nilai "Dikunjungi", "Depth maks.", "Depth solusi", dan "Waktu" menampilkan nilai pemanggilan terakhir; angka dalam tanda kurung adalah rata-rata seri. Baris **Batas Depth** menampilkan batas yang dipakai (`∞` untuk tak terbatas).
 
-## 8. Perilaku tie-breaking dan nondeterminisme
+## 8. Tie-breaking dan nondeterminisme
 
 Ada tiga lapis pengacakan yang memengaruhi hasil:
 
-1. **Urutan arah** diacak setiap `run_search` (`random.shuffle`), memengaruhi urutan neighbor dan isi heap.
-2. **Counter heap** (`itertools.count`) menjamin tidak ada perbandingan tuple yang gagal; entri dengan prioritas sama diproses sesuai urutan masuk.
-3. **Urutan hasil bot** diacak 50:50 di frontend sebelum aksi diterapkan, sehingga giliran bergerak tidak selalu sama.
+1. **Urutan arah** diacak setiap `run_search`, memengaruhi urutan neighbor dan isi heap.
+2. **Counter heap** (`itertools.count`) menjamin entri dengan prioritas sama diproses sesuai urutan masuk.
+3. **Urutan hasil bot** diacak 50:50 di frontend sebelum aksi diterapkan.
 
 Dampaknya:
 
 - Path dengan biaya sama dapat berbeda antar pemanggilan.
-- Benchmark sebaiknya menjalankan banyak trial (notebook memakai 50) dan melaporkan rata-rata serta standar deviasi.
+- Benchmark sebaiknya menjalankan banyak trial (notebook memakai 30–50) dan melaporkan rata-rata serta standar deviasi.
 - Jangan membandingkan dua algoritma hanya dari satu ronde; gunakan statistik seri.
 
 ## 9. Perbedaan notebook dan server
 
-Notebook adalah implementasi terpisah yang disederhanakan untuk eksperimen batch. Keduanya tidak identik, sehingga angka benchmark notebook tidak boleh dianggap sebagai reproduksi persis metrik di UI.
+Notebook `benchmarking.ipynb` adalah implementasi terpisah yang disederhanakan untuk eksperimen batch. Angka benchmark tidak boleh dianggap sebagai reproduksi persis metrik UI.
 
 | Aspek | Server (`main.py`) | Notebook |
 | --- | --- | --- |
-| Biaya kayu | `5.5` | `6` |
-| History penalty | Recency-weighted, maks. `16` per kunjungan | `jumlah_kunjungan × 5`, tanpa recency |
-| Danger penalty | `+35` per ubin | Tidak ada parameter danger |
-| BFS | Urutan neighbor acak | Neighbor diurutkan berdasarkan biaya |
-| GBFS | Prioritas `h(n)` murni | Prioritas `h(n) + (cost - 1)` |
+| Biaya kayu | `4.0` | `6.0` |
+| History penalty | `0.65 + idx × 0.05` per kunjungan, terakumulasi | `5.0` per kunjungan, terakumulasi |
+| Danger penalty | `+14` per ubin | Tidak ada parameter danger |
+| Depth limit | Per request (`max_depth`) | Tidak ada |
+| BFS | Urutan neighbor acak | Deterministik |
+| GBFS | Prioritas `h(n)` murni | Prioritas `h(n)` murni |
 | UCS | Implementasi terpisah dengan early exit | Alias ke fungsi Dijkstra |
-| Dijkstra | Priority queue dengan tuple counter | Priority queue `(g, node)` |
-| Early exit | BFS/UCS/GBFS/A\* ya, Dijkstra tidak | Semua berhenti di target |
-| Fallback | Ya, path parsial ke node terdekat | Tidak ada; path kosong bila gagal |
+| Dijkstra | Early exit saat target ditemukan | Early exit saat target ditemukan |
+| Fallback | Ya, path parsial ke node terbaik | Tidak ada; path kosong bila gagal |
 | Metrik | Nodes, max depth, solution depth, waktu | Nodes, waktu, panjang path |
 | Pengukuran waktu | Di endpoint, di sekitar `run_search` | Di dalam tiap fungsi algoritma |
-| Pengacakan | Ya | Tidak (deterministik kecuali data berubah) |
+| Pengacakan | Ya | Tidak (kecuali suite yang memakai seed) |
+| Peta | Klasik, Koridor, Terbuka dari UI | `MAP_OPEN`, `MAP_COMPLEX`, `MAP_CORRIDOR` |
 
 Implikasi untuk penelitian:
 
 - Gunakan notebook untuk perbandingan relatif antar algoritma pada kondisi yang sama.
-- Gunakan UI untuk demonstrasi interaktif dan validasi perilaku.
-- Jika membutuhkan angka yang benar-benar identik, samakan konstanta dan hilangkan pengacakan pada kedua implementasi, lalu dokumentasikan perubahannya.
+- Gunakan UI untuk demonstrasi interaktif, pengaruh depth limit, dan validasi perilaku.
+- Jika membutuhkan angka identik, samakan konstanta, batas depth, penanganan danger, dan pengacakan pada kedua implementasi, lalu dokumentasikan perubahannya.
 
 ## 10. Referensi konsep
 
